@@ -1,0 +1,1899 @@
+openapi: 3.2.0
+info:
+  title: Lemonade Server API
+  description: |
+    Lemonade Server is a standards-compliant HTTP API server for local LLM inference.
+    It supports OpenAI-compatible, Ollama-compatible, and Anthropic-compatible endpoints,
+    as well as Lemonade-specific management endpoints.
+
+    **Note:** This server is intended for use on local systems only.
+    Do not expose the server port to the open internet.
+
+    Default base URL: `http://localhost:8000`
+  version: 10.0.0
+  contact:
+    url: https://lemonade-server.ai/docs/server/server_spec/
+
+servers:
+  - url: http://localhost:8000
+    description: Default local server
+
+tags:
+  - name: OpenAI-Compatible
+    description: OpenAI-compatible chat, completion, embedding, and media endpoints
+  - name: llama.cpp
+    description: llama.cpp-specific endpoints (reranking)
+  - name: Lemonade-Specific
+    description: Lemonade-specific model management and system endpoints
+  - name: Ollama-Compatible
+    description: Ollama-compatible API endpoints
+  - name: Anthropic-Compatible
+    description: Anthropic-compatible Messages API endpoint
+
+paths:
+  # ─────────────────────────────────────────────
+  # OpenAI-Compatible Endpoints
+  # ─────────────────────────────────────────────
+
+  /api/v1/chat/completions:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Chat Completions
+      description: |
+        Chat Completions API. You provide a list of messages and receive a completion.
+        This API will also load the model if it is not already loaded.
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            example:
+              model: Qwen3-0.6B-GGUF
+              messages:
+                - role: user
+                  content: What is the population of Paris?
+              stream: false
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionStreamResponse'
+
+  /api/v1/completions:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Text Completions
+      description: |
+        Text Completions API. You provide a prompt and receive a completion.
+        This API will also load the model if it is not already loaded.
+      operationId: createCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompletionRequest'
+            example:
+              model: Qwen3-0.6B-GGUF
+              prompt: What is the population of Paris?
+              stream: false
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResponse'
+
+  /api/v1/embeddings:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Embeddings
+      description: |
+        Embeddings API. You provide input text and receive vector representations
+        (embeddings) that can be used for semantic search, clustering, and similarity comparisons.
+        This API will also load the model if it is not already loaded.
+
+        Note: Only available for models using the `llamacpp` or `flm` recipes.
+        ONNX models (OGA recipes) do not support embeddings.
+      operationId: createEmbedding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            example:
+              model: nomic-embed-text-v1-GGUF
+              input: ["Hello, world!", "How are you?"]
+              encoding_format: float
+      responses:
+        '200':
+          description: Successful embedding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+
+  /api/v1/reranking:
+    post:
+      tags: [llama.cpp]
+      summary: Reranking
+      description: |
+        Reranking API. You provide a query and a list of documents, and receive the documents
+        reordered by their relevance to the query with relevance scores.
+        This API will also load the model if it is not already loaded.
+
+        Note: This endpoint follows API conventions similar to OpenAI's format but is not
+        part of the official OpenAI API. It is only available for models using the `llamacpp` recipe.
+      operationId: createReranking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RerankingRequest'
+            example:
+              model: bge-reranker-v2-m3-GGUF
+              query: What is the capital of France?
+              documents:
+                - Paris is the capital of France.
+                - Berlin is the capital of Germany.
+                - Madrid is the capital of Spain.
+      responses:
+        '200':
+          description: Successful reranking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RerankingResponse'
+
+  /api/v1/responses:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Responses (OpenAI Responses API)
+      description: |
+        Responses API. You provide an input and receive a response.
+        This API will also load the model if it is not already loaded.
+
+        Supported streaming events: `response.created`, `response.output_text.delta`, `response.completed`.
+      operationId: createResponse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResponseRequest'
+            example:
+              model: Llama-3.2-1B-Instruct-Hybrid
+              input: What is the population of Paris?
+              stream: false
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseObject'
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-Sent Events stream
+
+  /api/v1/audio/transcriptions:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Audio Transcription
+      description: |
+        Audio Transcription API. You provide an audio file and receive a text transcription.
+        This API will also load the model if it is not already loaded.
+
+        Limitations: Only `wav` audio format and `json` response format are currently supported.
+      operationId: createTranscription
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, model]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: "The audio file to transcribe. Supported formats: wav."
+                model:
+                  type: string
+                  description: The Whisper model to use (e.g., Whisper-Tiny, Whisper-Base, Whisper-Small).
+                  example: Whisper-Tiny
+                language:
+                  type: string
+                  description: The language of the audio (ISO 639-1 code). If not specified, Whisper will auto-detect.
+                  example: en
+                response_format:
+                  type: string
+                  description: The format of the response. Currently only `json` is supported.
+                  enum: [json]
+                  default: json
+      responses:
+        '200':
+          description: Successful transcription
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                    description: The transcribed text from the audio file.
+              example:
+                text: Hello, this is a sample transcription of the audio file.
+
+  /api/v1/audio/speech:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Text to Speech
+      description: |
+        Speech Generation API. You provide a text input and receive an audio file.
+        Uses Kokoros as the backend.
+
+        Note: The only currently supported model is `kokoro-v1`.
+        Supported output formats: `mp3`, `wav`, `opus`, `pcm`.
+        Streaming is supported in `audio` (`pcm`) mode via `stream_format`.
+      operationId: createSpeech
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpeechRequest'
+            example:
+              model: kokoro-v1
+              input: Lemonade can speak!
+              speed: 1.0
+              response_format: mp3
+      responses:
+        '200':
+          description: Audio file
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+            audio/ogg:
+              schema:
+                type: string
+                format: binary
+            audio/pcm:
+              schema:
+                type: string
+                format: binary
+
+  /api/v1/images/generations:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Image Generation
+      description: |
+        Image Generation API. You provide a text prompt and receive a generated image.
+        Uses stable-diffusion.cpp as the backend.
+
+        Available models: `SD-Turbo` (fast, ~4 steps), `SDXL-Turbo`, `SD-1.5`, `SDXL-Base-1.0`.
+      operationId: createImageGeneration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageGenerationRequest'
+            example:
+              model: SD-Turbo
+              prompt: A serene mountain landscape at sunset
+              size: 512x512
+              steps: 4
+              response_format: b64_json
+      responses:
+        '200':
+          description: Generated image
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+
+  /api/v1/images/edits:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Image Editing
+      description: |
+        Image Editing API. You provide a source image and a text prompt describing the desired
+        change, and receive an edited image.
+        Uses stable-diffusion.cpp as the backend.
+
+        Note: This endpoint accepts `multipart/form-data` requests (not JSON).
+        Use editing-capable models such as `Flux-2-Klein-4B` or `SD-Turbo`.
+      operationId: createImageEdit
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImageEditRequest'
+      responses:
+        '200':
+          description: Edited image
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+
+  /api/v1/images/variations:
+    post:
+      tags: [OpenAI-Compatible]
+      summary: Image Variations
+      description: |
+        Image Variations API. You provide a source image and receive a variation of it.
+        Uses stable-diffusion.cpp as the backend.
+
+        Note: This endpoint accepts `multipart/form-data` requests (not JSON).
+        A `prompt` parameter is not supported — the model generates a variation based solely
+        on the input image.
+      operationId: createImageVariation
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ImageVariationRequest'
+      responses:
+        '200':
+          description: Image variation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageResponse'
+
+  /api/v1/models:
+    get:
+      tags: [OpenAI-Compatible]
+      summary: List Models
+      description: |
+        Returns a list of models available on the server in an OpenAI-compatible format.
+        Each model object includes extended fields like `checkpoint`, `recipe`, `size`,
+        `downloaded`, and `labels`.
+
+        By default, only locally downloaded models are shown.
+        Use `show_all=true` to include models not yet downloaded.
+      operationId: listModels
+      parameters:
+        - name: show_all
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: If true, returns all models from the catalog including those not yet downloaded.
+      responses:
+        '200':
+          description: List of models
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+
+  /api/v1/models/{model_id}:
+    get:
+      tags: [OpenAI-Compatible]
+      summary: Retrieve a Model
+      description: Retrieve a specific model by its ID. Returns the same model object format as the list endpoint.
+      operationId: retrieveModel
+      parameters:
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the model to retrieve.
+          example: Qwen3-0.6B-GGUF
+      responses:
+        '200':
+          description: Model object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Model'
+        '404':
+          description: Model not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  message: Model Qwen3-0.6B-GGUF has not been found
+                  type: not_found
+
+  # ─────────────────────────────────────────────
+  # Lemonade-Specific Endpoints
+  # ─────────────────────────────────────────────
+
+  /api/v1/pull:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Install/Register a Model
+      description: |
+        Register and install models for use with Lemonade Server.
+
+        **Install a registered model** by providing `model_name` only.
+
+        **Register and install a new model** from Hugging Face by also providing
+        `checkpoint` and `recipe`. The `model_name` must use the `user` namespace
+        (e.g., `user.My-Model`) to avoid collisions with built-in models.
+
+        When `stream=true`, Server-Sent Events with download progress are returned.
+      operationId: pullModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullRequest'
+            examples:
+              registered:
+                summary: Install a registered model
+                value:
+                  model_name: Qwen2.5-0.5B-Instruct-CPU
+              custom:
+                summary: Register and install a new model from HuggingFace
+                value:
+                  model_name: user.Phi-4-Mini-GGUF
+                  checkpoint: unsloth/Phi-4-mini-instruct-GGUF:Q4_K_M
+                  recipe: llamacpp
+      responses:
+        '200':
+          description: Installation result or SSE stream
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-Sent Events with download progress.
+
+                  Event types:
+                  - `progress`: `{"file","file_index","total_files","bytes_downloaded","bytes_total","percent"}`
+                  - `complete`: `{"file_index","total_files","percent"}`
+                  - `error`: `{"error"}`
+
+  /api/v1/delete:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Delete a Model
+      description: |
+        Delete a model by removing it from local storage.
+        If the model is currently loaded, it will be unloaded first.
+      operationId: deleteModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_name]
+              properties:
+                model_name:
+                  type: string
+                  description: Lemonade Server model name to delete.
+                  example: Qwen2.5-0.5B-Instruct-CPU
+      responses:
+        '200':
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /api/v1/load:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Load a Model
+      description: |
+        Explicitly load a registered model into memory. Installs the model if necessary.
+
+        Setting priority (highest to lowest):
+        1. Values passed explicitly in the request
+        2. Per-model values from `recipe_options.json`
+        3. `lemonade-server` CLI arguments or environment variables
+        4. Hardcoded defaults in `lemonade-router`
+      operationId: loadModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadRequest'
+            example:
+              model_name: Qwen3-0.6B-GGUF
+              ctx_size: 8192
+              llamacpp_backend: rocm
+      responses:
+        '200':
+          description: Load result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /api/v1/unload:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Unload a Model
+      description: |
+        Explicitly unload a model from memory to free resources while keeping the server running.
+        If `model_name` is omitted, all loaded models are unloaded.
+      operationId: unloadModel
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model_name:
+                  type: string
+                  description: Name of the model to unload. Omit to unload all models.
+                  example: Qwen3-0.6B-GGUF
+      responses:
+        '200':
+          description: Unload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /api/v1/health:
+    get:
+      tags: [Lemonade-Specific]
+      summary: Health Check
+      description: |
+        Check the health of the server. Returns information about loaded models,
+        server version, and resource limits.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server health information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/v1/stats:
+    get:
+      tags: [Lemonade-Specific]
+      summary: Performance Statistics
+      description: Performance statistics from the last inference request.
+      operationId: getStats
+      responses:
+        '200':
+          description: Performance statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+
+  /api/v1/system-info:
+    get:
+      tags: [Lemonade-Specific]
+      summary: System Information
+      description: |
+        System information endpoint that provides complete hardware details,
+        device enumeration, and recipe/backend support status.
+      operationId: getSystemInfo
+      responses:
+        '200':
+          description: System information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfoResponse'
+
+  /api/v1/install:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Install a Backend
+      description: |
+        Install or update a backend for a specific recipe/backend pair.
+        If the backend is already installed but outdated, this endpoint updates it.
+
+        When `stream=true`, Server-Sent Events with progress are returned.
+      operationId: installBackend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackendRequest'
+            example:
+              recipe: llamacpp
+              backend: vulkan
+              stream: false
+      responses:
+        '200':
+          description: Installation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackendResponse'
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/v1/uninstall:
+    post:
+      tags: [Lemonade-Specific]
+      summary: Uninstall a Backend
+      description: |
+        Uninstall a backend for a specific recipe/backend pair.
+        If loaded models are using that backend, they are unloaded first.
+      operationId: uninstallBackend
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackendRequest'
+            example:
+              recipe: llamacpp
+              backend: vulkan
+      responses:
+        '200':
+          description: Uninstallation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackendResponse'
+
+  /live:
+    get:
+      tags: [Lemonade-Specific]
+      summary: Liveness Check
+      description: Simple liveness probe for load balancers and orchestrators.
+      operationId: getLiveness
+      responses:
+        '200':
+          description: Server is live
+
+  # ─────────────────────────────────────────────
+  # Ollama-Compatible Endpoints
+  # ─────────────────────────────────────────────
+
+  /api/chat:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Chat
+      description: Ollama-compatible chat endpoint. Supports streaming and non-streaming.
+      operationId: ollamaChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Message'
+                stream:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Chat response
+
+  /api/generate:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Generate
+      description: Text completion and image generation. Ollama-compatible.
+      operationId: ollamaGenerate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, prompt]
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+                stream:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Generation response
+
+  /api/tags:
+    get:
+      tags: [Ollama-Compatible]
+      summary: Ollama List Models
+      description: Lists downloaded models. Ollama-compatible.
+      operationId: ollamaListModels
+      responses:
+        '200':
+          description: List of models
+
+  /api/show:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Show Model Details
+      description: Returns model details. Ollama-compatible.
+      operationId: ollamaShowModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+      responses:
+        '200':
+          description: Model details
+
+  /api/delete:
+    delete:
+      tags: [Ollama-Compatible]
+      summary: Ollama Delete Model
+      description: Deletes a model. Ollama-compatible.
+      operationId: ollamaDeleteModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+      responses:
+        '200':
+          description: Deletion result
+
+  /api/pull:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Pull Model
+      description: Download a model with progress. Ollama-compatible.
+      operationId: ollamaPullModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model]
+              properties:
+                model:
+                  type: string
+                stream:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Pull result
+
+  /api/embed:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Embeddings (new format)
+      description: Generate embeddings. New Ollama format.
+      operationId: ollamaEmbed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input]
+              properties:
+                model:
+                  type: string
+                input:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+      responses:
+        '200':
+          description: Embedding result
+
+  /api/embeddings:
+    post:
+      tags: [Ollama-Compatible]
+      summary: Ollama Embeddings (legacy format)
+      description: Generate embeddings. Legacy Ollama format.
+      operationId: ollamaEmbeddings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, prompt]
+              properties:
+                model:
+                  type: string
+                prompt:
+                  type: string
+      responses:
+        '200':
+          description: Embedding result
+
+  /api/ps:
+    get:
+      tags: [Ollama-Compatible]
+      summary: Ollama Running Models
+      description: Returns currently running models. Ollama-compatible.
+      operationId: ollamaListRunning
+      responses:
+        '200':
+          description: Running models
+
+  /api/version:
+    get:
+      tags: [Ollama-Compatible]
+      summary: Ollama Version
+      description: Returns the server version. Ollama-compatible.
+      operationId: ollamaVersion
+      responses:
+        '200':
+          description: Version information
+
+  # ─────────────────────────────────────────────
+  # Anthropic-Compatible Endpoints
+  # ─────────────────────────────────────────────
+
+  /v1/messages:
+    post:
+      tags: [Anthropic-Compatible]
+      summary: Anthropic Messages
+      description: |
+        Anthropic-compatible Messages API. Supports both streaming and non-streaming.
+        Query params such as `?beta=true` are accepted.
+
+        Supported fields: `model`, `messages`, `system`, `max_tokens`, `temperature`,
+        `stream`, and basic `tools`. Unsupported or unimplemented Anthropic-specific fields
+        are ignored and surfaced via warning logs/headers.
+      operationId: createAnthropicMessage
+      parameters:
+        - name: beta
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Enable beta features (accepted but may not change behavior).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages, max_tokens]
+              properties:
+                model:
+                  type: string
+                  description: The model to use.
+                messages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Message'
+                system:
+                  type: string
+                  description: Optional system prompt.
+                max_tokens:
+                  type: integer
+                  description: Maximum number of tokens to generate.
+                temperature:
+                  type: number
+                  format: float
+                  description: Sampling temperature.
+                stream:
+                  type: boolean
+                  default: false
+                tools:
+                  type: array
+                  description: Basic tool definitions.
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Message response
+
+# ─────────────────────────────────────────────
+# Components
+# ─────────────────────────────────────────────
+components:
+  schemas:
+
+    # ── Shared ──────────────────────────────────
+
+    Message:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+          description: The role of the message author.
+        content:
+          description: |
+            The message content. Can be a plain string, or an array of content parts
+            for multimodal input (text + image_url).
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                oneOf:
+                  - type: object
+                    required: [type, text]
+                    properties:
+                      type:
+                        type: string
+                        enum: [text]
+                      text:
+                        type: string
+                  - type: object
+                    required: [type, image_url]
+                    properties:
+                      type:
+                        type: string
+                        enum: [image_url]
+                      image_url:
+                        type: object
+                        required: [url]
+                        properties:
+                          url:
+                            type: string
+                            description: URL or base64 data URL of the image.
+
+    UsageInfo:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+
+    # ── Chat Completions ─────────────────────────
+
+    ChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: The model to use for the completion.
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+          description: Array of messages in the conversation.
+        stream:
+          type: boolean
+          default: false
+          description: If true, tokens are sent as they are generated (SSE).
+        stop:
+          description: Up to 4 stop sequences. Can be a string or array of strings.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+              maxItems: 4
+        logprobs:
+          type: boolean
+          default: false
+          description: Include log probabilities of output tokens.
+        temperature:
+          type: number
+          format: float
+          description: Sampling temperature.
+        repeat_penalty:
+          type: number
+          format: float
+          minimum: 1.0
+          maximum: 2.0
+          description: Repetition penalty. 1.0 means no penalty.
+        top_k:
+          type: integer
+          description: Number of top tokens to consider during sampling.
+        top_p:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+          description: Cumulative probability for nucleus sampling.
+        tools:
+          type: array
+          description: A list of tools the model may call.
+          items:
+            type: object
+        max_tokens:
+          type: integer
+          description: "Upper bound for tokens to generate. Deprecated in favor of max_completion_tokens. Mutually exclusive with max_completion_tokens."
+        max_completion_tokens:
+          type: integer
+          description: "Upper bound for tokens to generate. Mutually exclusive with max_tokens."
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [chat.completion]
+        created:
+          type: integer
+          description: Unix timestamp.
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/Message'
+              finish_reason:
+                type: string
+                enum: [stop, length, tool_calls]
+
+    ChatCompletionStreamResponse:
+      type: object
+      description: Server-Sent Event chunk for streaming chat completions.
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [chat.completion.chunk]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+              finish_reason:
+                type: string
+                nullable: true
+
+    # ── Text Completions ─────────────────────────
+
+    CompletionRequest:
+      type: object
+      required: [model, prompt]
+      properties:
+        model:
+          type: string
+        prompt:
+          type: string
+          description: The prompt for the completion.
+        stream:
+          type: boolean
+          default: false
+        stop:
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+              maxItems: 4
+        echo:
+          type: boolean
+          description: Echo back the prompt in addition to the completion (non-streaming only).
+        logprobs:
+          type: boolean
+          default: false
+          description: Include log probabilities (non-streaming only).
+        temperature:
+          type: number
+          format: float
+        repeat_penalty:
+          type: number
+          format: float
+          minimum: 1.0
+          maximum: 2.0
+        top_k:
+          type: integer
+        top_p:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        max_tokens:
+          type: integer
+
+    CompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          enum: [text_completion]
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              text:
+                type: string
+              finish_reason:
+                type: string
+
+    # ── Embeddings ───────────────────────────────
+
+    EmbeddingRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+        input:
+          description: Text(s) to embed. Can be a string or array of strings.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        encoding_format:
+          type: string
+          enum: [float, base64]
+          default: float
+
+    EmbeddingResponse:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              object:
+                type: string
+                enum: [embedding]
+              index:
+                type: integer
+              embedding:
+                type: array
+                items:
+                  type: number
+                  format: float
+        model:
+          type: string
+        usage:
+          $ref: '#/components/schemas/UsageInfo'
+
+    # ── Reranking ────────────────────────────────
+
+    RerankingRequest:
+      type: object
+      required: [model, query, documents]
+      properties:
+        model:
+          type: string
+        query:
+          type: string
+          description: The search query text.
+        documents:
+          type: array
+          items:
+            type: string
+          description: Array of document strings to be reranked.
+
+    RerankingResponse:
+      type: object
+      properties:
+        model:
+          type: string
+        object:
+          type: string
+          enum: [list]
+        results:
+          type: array
+          description: Documents with relevance scores in original input order.
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+                description: Original index in the input array.
+              relevance_score:
+                type: number
+                format: float
+                description: Relevance score (higher = more relevant).
+        usage:
+          $ref: '#/components/schemas/UsageInfo'
+
+    # ── Responses API ────────────────────────────
+
+    ResponseRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+        input:
+          description: A list of message dicts or a simple string prompt.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/Message'
+        max_output_tokens:
+          type: integer
+        temperature:
+          type: number
+          format: float
+        repeat_penalty:
+          type: number
+          format: float
+          minimum: 1.0
+          maximum: 2.0
+        top_k:
+          type: integer
+        top_p:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 1.0
+        stream:
+          type: boolean
+          default: false
+
+    ResponseObject:
+      type: object
+      properties:
+        id:
+          type: string
+        created_at:
+          type: number
+          format: float
+        model:
+          type: string
+        object:
+          type: string
+          enum: [response]
+        output:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              content:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    annotations:
+                      type: array
+                      items: {}
+                    text:
+                      type: string
+
+    # ── Speech ───────────────────────────────────
+
+    SpeechRequest:
+      type: object
+      required: [model, input]
+      properties:
+        model:
+          type: string
+          description: The model to use. Currently only `kokoro-v1` is supported.
+          example: kokoro-v1
+        input:
+          type: string
+          description: The text to synthesize.
+        speed:
+          type: number
+          format: float
+          default: 1.0
+          description: Speaking speed.
+        voice:
+          type: string
+          default: shimmer
+          description: Voice to use (OpenAI voices or Kokoro voices such as af_sky, am_echo).
+        response_format:
+          type: string
+          enum: [mp3, wav, opus, pcm]
+          default: mp3
+        stream_format:
+          type: string
+          enum: [audio]
+          description: If set, response is streamed as PCM audio. Default is not set.
+
+    # ── Image Generation ─────────────────────────
+
+    ImageGenerationRequest:
+      type: object
+      required: [model, prompt]
+      properties:
+        model:
+          type: string
+          description: The Stable Diffusion model to use (e.g., SD-Turbo, SDXL-Turbo).
+        prompt:
+          type: string
+          description: Text description of the image to generate.
+        size:
+          type: string
+          pattern: '^\d+x\d+$'
+          default: 512x512
+          description: "Image size as WIDTHxHEIGHT. Example: 512x512."
+        n:
+          type: integer
+          default: 1
+          description: Number of images to generate. Currently only 1 is supported.
+        response_format:
+          type: string
+          enum: [b64_json]
+          default: b64_json
+        steps:
+          type: integer
+          description: Number of inference steps.
+        cfg_scale:
+          type: number
+          format: float
+          description: Classifier-free guidance scale.
+        seed:
+          type: integer
+          description: Random seed for reproducibility.
+
+    ImageEditRequest:
+      type: object
+      required: [model, image, prompt]
+      properties:
+        model:
+          type: string
+          description: The Stable Diffusion model to use (e.g., Flux-2-Klein-4B, SD-Turbo).
+        image:
+          type: string
+          format: binary
+          description: The source image file to edit (PNG).
+        prompt:
+          type: string
+          description: Text description of the desired edit.
+        mask:
+          type: string
+          format: binary
+          description: Optional mask image (PNG). White = edit, black = preserve.
+        size:
+          type: string
+          pattern: '^\d+x\d+$'
+          default: 512x512
+        n:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 1
+        response_format:
+          type: string
+          enum: [b64_json]
+          default: b64_json
+        steps:
+          type: integer
+        cfg_scale:
+          type: number
+          format: float
+        seed:
+          type: integer
+        user:
+          type: string
+          description: OpenAI compatibility field. Accepted but not forwarded.
+        background:
+          type: string
+          description: OpenAI compatibility field. Accepted but not forwarded.
+        quality:
+          type: string
+          description: OpenAI compatibility field. Accepted but not forwarded.
+        input_fidelity:
+          type: string
+          description: OpenAI compatibility field. Accepted but not forwarded.
+        output_compression:
+          type: string
+          description: OpenAI compatibility field. Accepted but silently ignored.
+
+    ImageVariationRequest:
+      type: object
+      required: [model, image]
+      properties:
+        model:
+          type: string
+          description: The Stable Diffusion model to use (e.g., Flux-2-Klein-4B, SD-Turbo).
+        image:
+          type: string
+          format: binary
+          description: The source image file (PNG).
+        size:
+          type: string
+          pattern: '^\d+x\d+$'
+          default: 512x512
+        n:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 1
+        response_format:
+          type: string
+          enum: [b64_json]
+          default: b64_json
+        user:
+          type: string
+          description: OpenAI compatibility field. Accepted but not forwarded.
+
+    ImageResponse:
+      type: object
+      properties:
+        created:
+          type: integer
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              b64_json:
+                type: string
+                description: Base64-encoded image data.
+
+    # ── Models ───────────────────────────────────
+
+    ImageDefaults:
+      type: object
+      description: Default generation parameters for image models.
+      properties:
+        steps:
+          type: integer
+        cfg_scale:
+          type: number
+          format: float
+        width:
+          type: integer
+        height:
+          type: integer
+
+    RecipeOptions:
+      type: object
+      description: Recipe-specific options used to load the model.
+      properties:
+        ctx_size:
+          type: integer
+        llamacpp_args:
+          type: string
+        llamacpp_backend:
+          type: string
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Model identifier used for loading and inference requests.
+        created:
+          type: integer
+          description: Unix timestamp of when the model entry was created.
+        object:
+          type: string
+          enum: [model]
+        owned_by:
+          type: string
+          description: Owner of the model, always "lemonade".
+        checkpoint:
+          type: string
+          description: Full checkpoint identifier on Hugging Face.
+        recipe:
+          type: string
+          description: Backend/device recipe (e.g., ryzenai-llm, llamacpp, flm).
+        size:
+          type: number
+          format: float
+          description: Model size in GB.
+        downloaded:
+          type: boolean
+          description: Whether the model is downloaded and available locally.
+        suggested:
+          type: boolean
+          description: Whether the model is recommended for general use.
+        labels:
+          type: array
+          items:
+            type: string
+          description: Tags describing the model (e.g., hot, reasoning, vision, embeddings, image).
+        image_defaults:
+          $ref: '#/components/schemas/ImageDefaults'
+        recipe_options:
+          $ref: '#/components/schemas/RecipeOptions'
+
+    ModelList:
+      type: object
+      properties:
+        object:
+          type: string
+          enum: [list]
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+
+    # ── Lemonade Management ──────────────────────
+
+    PullRequest:
+      type: object
+      required: [model_name]
+      properties:
+        model_name:
+          type: string
+          description: |
+            Lemonade Server model name. For registering a new model, use the `user` namespace
+            (e.g., `user.My-Model`).
+        checkpoint:
+          type: string
+          description: HuggingFace checkpoint to register and install (e.g., `org/repo:filename`).
+        recipe:
+          type: string
+          description: Lemonade API recipe to load the model with (e.g., llamacpp, flm, oga).
+        stream:
+          type: boolean
+          default: false
+          description: If true, returns Server-Sent Events with download progress.
+        reasoning:
+          type: boolean
+          default: false
+          description: Whether the model is a reasoning model. Adds 'reasoning' label.
+        vision:
+          type: boolean
+          default: false
+          description: Whether the model has vision capabilities. Adds 'vision' label.
+        embedding:
+          type: boolean
+          default: false
+          description: Whether the model is an embedding model. Adds 'embeddings' label.
+        reranking:
+          type: boolean
+          default: false
+          description: Whether the model is a reranking model. Adds 'reranking' label.
+        mmproj:
+          type: string
+          description: Multimodal Projector file for vision models.
+
+    LoadRequest:
+      type: object
+      required: [model_name]
+      properties:
+        model_name:
+          type: string
+          description: Lemonade Server model name to load.
+        save_options:
+          type: boolean
+          description: If true, saves recipe options to recipe_options.json.
+        ctx_size:
+          type: integer
+          description: Context size override (llamacpp, flm, ryzenai-llm).
+        llamacpp_backend:
+          type: string
+          enum: [vulkan, rocm, metal, cpu]
+          description: LlamaCpp backend to use.
+        llamacpp_args:
+          type: string
+          description: Custom arguments to pass to llama-server (some flags disallowed).
+        whispercpp_backend:
+          type: string
+          enum: [npu, cpu, vulkan]
+          description: WhisperCpp backend.
+        whispercpp_args:
+          type: string
+          description: Custom arguments to pass to whisper-server (some flags disallowed).
+        steps:
+          type: integer
+          description: Number of inference steps for image generation (sd-cpp). Default 20.
+        cfg_scale:
+          type: number
+          format: float
+          description: Classifier-free guidance scale for image generation (sd-cpp). Default 7.0.
+        width:
+          type: integer
+          description: Image width in pixels (sd-cpp). Default 512.
+        height:
+          type: integer
+          description: Image height in pixels (sd-cpp). Default 512.
+
+    BackendRequest:
+      type: object
+      required: [recipe, backend]
+      properties:
+        recipe:
+          type: string
+          description: Recipe name (e.g., llamacpp, flm, whispercpp, sd-cpp, ryzenai-llm).
+        backend:
+          type: string
+          description: Backend name within the recipe (e.g., vulkan, rocm, cpu, default).
+        stream:
+          type: boolean
+          default: false
+          description: If true, returns Server-Sent Events with progress.
+
+    BackendResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        recipe:
+          type: string
+        backend:
+          type: string
+        error:
+          type: string
+          description: Error details (only present on failure).
+
+    # ── Health ───────────────────────────────────
+
+    LoadedModelInfo:
+      type: object
+      properties:
+        model_name:
+          type: string
+        checkpoint:
+          type: string
+        last_use:
+          type: number
+          format: float
+          description: Unix timestamp of last access.
+        type:
+          type: string
+          enum: [llm, embedding, reranking, audio, image, tts]
+        device:
+          type: string
+          description: Space-separated device list (e.g., "gpu npu").
+        recipe:
+          type: string
+        recipe_options:
+          $ref: '#/components/schemas/RecipeOptions'
+        backend_url:
+          type: string
+          description: URL of the backend server process (useful for debugging).
+
+    MaxModels:
+      type: object
+      properties:
+        llm:
+          type: integer
+        embedding:
+          type: integer
+        reranking:
+          type: integer
+        audio:
+          type: integer
+        image:
+          type: integer
+        tts:
+          type: integer
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+        model_loaded:
+          type: string
+          description: Name of the most recently accessed model.
+        all_models_loaded:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoadedModelInfo'
+        max_models:
+          $ref: '#/components/schemas/MaxModels'
+        websocket_port:
+          type: integer
+          description: WebSocket port for the Realtime API. Present only when the WS server is running.
+
+    # ── Stats ────────────────────────────────────
+
+    StatsResponse:
+      type: object
+      properties:
+        time_to_first_token:
+          type: number
+          format: float
+          description: Time in seconds until the first token was generated.
+        tokens_per_second:
+          type: number
+          format: float
+          description: Generation speed in tokens per second.
+        input_tokens:
+          type: integer
+          description: Number of tokens processed.
+        output_tokens:
+          type: integer
+          description: Number of tokens generated.
+        decode_token_times:
+          type: array
+          items:
+            type: number
+            format: float
+          description: Time taken for each generated token.
+        prompt_tokens:
+          type: integer
+          description: Total prompt tokens including cached tokens.
+
+    # ── System Info ──────────────────────────────
+
+    BackendInfo:
+      type: object
+      properties:
+        devices:
+          type: array
+          items:
+            type: string
+        state:
+          type: string
+          enum: [unsupported, installable, update_required, installed]
+        message:
+          type: string
+        action:
+          type: string
+        version:
+          type: string
+
+    RecipeInfo:
+      type: object
+      properties:
+        default_backend:
+          type: string
+        backends:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/BackendInfo'
+
+    SystemInfoResponse:
+      type: object
+      properties:
+        OS Version:
+          type: string
+        Processor:
+          type: string
+        Physical Memory:
+          type: string
+        OEM System:
+          type: string
+          description: System/laptop model name (Windows only).
+        BIOS Version:
+          type: string
+          description: BIOS information (Windows only).
+        CPU Max Clock:
+          type: string
+          description: Maximum CPU clock speed (Windows only).
+        Windows Power Setting:
+          type: string
+          description: Current power plan (Windows only).
+        devices:
+          type: object
+          description: Hardware devices detected on the system.
+          properties:
+            cpu:
+              type: object
+              properties:
+                name:
+                  type: string
+                cores:
+                  type: integer
+                threads:
+                  type: integer
+                available:
+                  type: boolean
+                family:
+                  type: string
+            amd_igpu:
+              type: object
+              properties:
+                name:
+                  type: string
+                vram_gb:
+                  type: number
+                  format: float
+                available:
+                  type: boolean
+                family:
+                  type: string
+            amd_dgpu:
+              type: array
+              items:
+                type: object
+            amd_npu:
+              type: object
+              properties:
+                name:
+                  type: string
+                power_mode:
+                  type: string
+                available:
+                  type: boolean
+                family:
+                  type: string
+            nvidia_dgpu:
+              type: array
+              items:
+                type: object
+        recipes:
+          type: object
+          description: Software recipes and their backend support status.
+          additionalProperties:
+            $ref: '#/components/schemas/RecipeInfo'
